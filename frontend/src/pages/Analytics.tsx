@@ -21,7 +21,8 @@ import {
   ClockIcon,
   ArrowTrendingUpIcon,
   CircleStackIcon,
-  CalendarIcon
+  CalendarIcon,
+  SparklesIcon
 } from '@heroicons/react/24/outline';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/common/Card';
 import { analyticsApi, judgeApi } from '../services/api';
@@ -43,26 +44,52 @@ export const Analytics = () => {
     queryFn: () => analyticsApi.getRecentEvents(200),
   });
 
-  // 🔴 DEBUG: Fetch judge scores with logging
-  const { data: judgeScores, error: judgeError, isLoading: judgeLoading } = useQuery({
-    queryKey: ['judge-scores'],
+  // 🔴 NEW: Fetch random prompt from HH dataset
+  const { data: datasetPrompt, refetch: refetchPrompt } = useQuery({
+    queryKey: ['dataset-prompt'],
     queryFn: async () => {
-      console.log('🔵 Fetching judge scores...');
+      console.log('🔵 Fetching random prompt from HH dataset...');
+      const response = await fetch('http://localhost:8000/api/v1/agent/dataset/prompt');
+      const data = await response.json();
+      console.log('✅ Got prompt:', data.prompt.substring(0, 50) + '...');
+      return data;
+    },
+    refetchInterval: 60000, // Get new prompt every minute
+  });
+
+  // 🔴 NEW: Fetch judge scores using REAL dataset prompts
+  const { data: judgeScores, error: judgeError, isLoading: judgeLoading, refetch: refetchJudge } = useQuery({
+    queryKey: ['judge-scores', datasetPrompt?.prompt],
+    queryFn: async () => {
+      if (!datasetPrompt) {
+        console.log('⏳ Waiting for dataset prompt...');
+        return null;
+      }
+      
+      console.log('🔵 Evaluating with REAL prompt:', datasetPrompt.prompt.substring(0, 50) + '...');
+      
       try {
         const result = await judgeApi.compareResponses(
-          "What is machine learning?",
-          "Machine learning is a subset of AI that enables systems to learn from data.",
-          "ML is when computers learn patterns from examples without being explicitly programmed."
+          datasetPrompt.prompt,
+          datasetPrompt.chosen,    // Good/safe response
+          datasetPrompt.rejected    // Bad/unsafe response
         );
-        console.log('✅ Judge scores received:', result);
+        console.log('✅ Judge evaluation complete:', result);
         return result;
       } catch (error) {
         console.error('❌ Judge API error:', error);
         throw error;
       }
     },
+    enabled: !!datasetPrompt,
     refetchInterval: 30000,
   });
+
+  // Manual refresh function
+  const handleNewPrompt = () => {
+    refetchPrompt();
+    setTimeout(() => refetchJudge(), 500);
+  };
 
   // Error state
   if (metricsError || eventsError) {
@@ -100,7 +127,6 @@ export const Analytics = () => {
         startDate = subDays(now, 7);
     }
 
-    // Filter events within time range
     const filteredEvents = events.filter((event: any) => {
       const eventDate = new Date(event.timestamp);
       return eventDate >= startDate;
@@ -110,7 +136,6 @@ export const Analytics = () => {
       return [];
     }
 
-    // Group events by time interval
     const groupedData = new Map();
     
     filteredEvents.forEach((event: any) => {
@@ -147,7 +172,6 @@ export const Analytics = () => {
       else if (event.variant === 'B') group.variantB++;
     });
 
-    // Calculate averages and sort
     const result = Array.from(groupedData.values())
       .map(group => ({
         timestamp: group.timestamp,
@@ -170,7 +194,6 @@ export const Analytics = () => {
 
   const timeSeriesData = generateTimeSeriesData();
 
-  // Calculate trends
   const calculateTrend = (data: any[], key: string) => {
     if (data.length < 2) return { value: '0', direction: 'neutral' as const };
     const first = data[0][key];
@@ -287,34 +310,52 @@ export const Analytics = () => {
         </div>
       </div>
 
-      {/* 🔴 DEBUG PANEL - Shows what's happening with judge scores */}
+      {/* 🔴 NEW: Dataset Info Panel */}
+      <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <SparklesIcon className="w-5 h-5 text-purple-600 mr-2" />
+            <span className="font-medium text-purple-800">Anthropic HH Golden Dataset</span>
+          </div>
+          <button
+            onClick={handleNewPrompt}
+            className="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition-colors"
+          >
+            🔄 New Random Prompt
+          </button>
+        </div>
+        {datasetPrompt && (
+          <div className="mt-2 text-sm text-purple-700">
+            <p className="font-medium">Current Prompt:</p>
+            <p className="italic">"{datasetPrompt.prompt.substring(0, 100)}..."</p>
+          </div>
+        )}
+      </div>
+
+      {/* Debug Panel */}
       <div className="bg-gray-800 text-white p-4 rounded-lg mb-4">
         <h3 className="font-bold mb-2">🔍 Debug Info:</h3>
         <div className="grid grid-cols-2 gap-2 text-sm">
+          <div>Dataset Prompt:</div>
+          <div className={datasetPrompt ? 'text-green-400' : 'text-yellow-400'}>
+            {datasetPrompt ? '✅ Loaded' : '⏳ Loading...'}
+          </div>
+          
           <div>Judge Scores:</div>
           <div className={judgeScores ? 'text-green-400' : 'text-yellow-400'}>
-            {judgeScores ? '✅ Loaded' : '⏳ Loading...'}
+            {judgeScores ? '✅ Loaded' : judgeLoading ? '⏳ Evaluating...' : '⏳ Waiting...'}
           </div>
           
           <div>Judge Error:</div>
           <div className="text-red-400">{judgeError?.message || 'None'}</div>
-          
-          <div>Judge Loading:</div>
-          <div>{judgeLoading ? 'Yes' : 'No'}</div>
         </div>
         
         {judgeScores && (
           <div className="mt-2">
-            <p className="text-sm font-semibold">📦 Data:</p>
+            <p className="text-sm font-semibold">📊 Evaluation Result:</p>
             <pre className="text-xs mt-1 bg-gray-900 p-2 rounded overflow-auto max-h-40">
               {JSON.stringify(judgeScores, null, 2)}
             </pre>
-          </div>
-        )}
-        
-        {!judgeScores && !judgeLoading && !judgeError && (
-          <div className="mt-2 text-yellow-400 text-sm">
-            ⏳ Waiting for judge scores to load...
           </div>
         )}
       </div>
@@ -331,7 +372,7 @@ export const Analytics = () => {
         />
       )}
 
-      {/* Trend Cards */}
+      {/* Rest of your existing JSX (Trend Cards, Charts, etc.) */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
@@ -511,7 +552,6 @@ export const Analytics = () => {
 
       {/* Two Column Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Latency Distribution */}
         <Card>
           <CardHeader>
             <CardTitle>Latency Distribution by Variant</CardTitle>
@@ -540,7 +580,6 @@ export const Analytics = () => {
           </CardContent>
         </Card>
 
-        {/* Error Rate Trend */}
         <Card>
           <CardHeader>
             <CardTitle>Error Rate Trend</CardTitle>

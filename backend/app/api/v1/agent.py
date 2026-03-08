@@ -8,6 +8,7 @@ from app.core.models import VariantType, AgentEvent
 from app.db.repositories import AgentRepository
 from app.services.langfuse import LangfuseService
 from app.core.router import SmartRouter
+from app.services.hh_dataset import hh_dataset
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 logger = logging.getLogger(__name__)
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Request/Response models
 class AgentRunRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=10000)
-    variant: Optional[str] = None  # Change to str instead of VariantType
+    variant: Optional[str] = None
     metadata: dict = Field(default_factory=dict)
 
 class AgentRunResponse(BaseModel):
@@ -28,7 +29,6 @@ class AgentRunResponse(BaseModel):
 
 # Dependencies
 async def get_agent() -> Agent:
-    # In production, use dependency injection
     repo = AgentRepository()
     langfuse = LangfuseService()
     router = SmartRouter()
@@ -91,17 +91,43 @@ async def run_agent(
 async def get_available_variants():
     """Get available agent variants"""
     return {
-        "variants": ["A", "B"],  # Return strings instead of enum values
+        "variants": ["A", "B"],
         "description": {
             "A": "Stable, conservative variant",
             "B": "Experimental, potentially faster but riskier"
         }
     }
 
+@router.get("/dataset/prompt")
+async def get_dataset_prompt():
+    """Get a random prompt from HH dataset"""
+    try:
+        result = hh_dataset.get_random_prompt()
+        logger.info(f"✅ Dataset prompt loaded: {result['prompt'][:50]}...")
+        return result
+    except Exception as e:
+        logger.error(f"❌ Failed to get dataset prompt: {e}")
+        # Return fallback prompt
+        return {
+            "prompt": "What is machine learning?",
+            "chosen": "Machine learning is a subset of AI that enables systems to learn from data.",
+            "rejected": "ML is when computers learn patterns from examples without being explicitly programmed."
+        }
+
+@router.get("/dataset/prompts")
+async def get_dataset_prompts(count: int = 10):
+    """Get multiple random prompts"""
+    try:
+        prompts = []
+        for _ in range(count):
+            prompts.append(hh_dataset.get_random_prompt())
+        logger.info(f"✅ Loaded {len(prompts)} dataset prompts")
+        return prompts
+    except Exception as e:
+        logger.error(f"❌ Failed to get dataset prompts: {e}")
+        return []
+
 async def process_agent_result(event_id: int):
     """Background processing of agent results"""
-    # Add additional processing like:
-    # - Update analytics
-    # - Check for alerts
-    # - Trigger optimizations
+    # TODO: Add background processing logic
     pass
