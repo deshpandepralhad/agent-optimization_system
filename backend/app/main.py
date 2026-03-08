@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
+from app.api.v1 import judge
 import logging
 
 from app.api.v1 import agent, analytics, optimizer, websocket
@@ -49,6 +50,7 @@ app.include_router(agent.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(optimizer.router, prefix="/api/v1")
 app.include_router(websocket.router, prefix="/ws")
+app.include_router(judge.router, prefix="/api/v1")
 
 # Health check
 @app.get("/health")

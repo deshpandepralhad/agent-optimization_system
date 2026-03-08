@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { JudgeScores } from '../components/analytics/JudgeScores';
 import { useQuery } from '@tanstack/react-query';
 import {
   LineChart,
@@ -23,7 +24,7 @@ import {
   CalendarIcon
 } from '@heroicons/react/24/outline';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/common/Card';
-import { analyticsApi } from '../services/api';
+import { analyticsApi, judgeApi } from '../services/api';
 import { format, subDays, subHours } from 'date-fns';
 
 export const Analytics = () => {
@@ -40,6 +41,27 @@ export const Analytics = () => {
   const { data: events = [], error: eventsError } = useQuery({
     queryKey: ['recent-events', 200],
     queryFn: () => analyticsApi.getRecentEvents(200),
+  });
+
+  // 🔴 DEBUG: Fetch judge scores with logging
+  const { data: judgeScores, error: judgeError, isLoading: judgeLoading } = useQuery({
+    queryKey: ['judge-scores'],
+    queryFn: async () => {
+      console.log('🔵 Fetching judge scores...');
+      try {
+        const result = await judgeApi.compareResponses(
+          "What is machine learning?",
+          "Machine learning is a subset of AI that enables systems to learn from data.",
+          "ML is when computers learn patterns from examples without being explicitly programmed."
+        );
+        console.log('✅ Judge scores received:', result);
+        return result;
+      } catch (error) {
+        console.error('❌ Judge API error:', error);
+        throw error;
+      }
+    },
+    refetchInterval: 30000,
   });
 
   // Error state
@@ -264,6 +286,50 @@ export const Analytics = () => {
           </div>
         </div>
       </div>
+
+      {/* 🔴 DEBUG PANEL - Shows what's happening with judge scores */}
+      <div className="bg-gray-800 text-white p-4 rounded-lg mb-4">
+        <h3 className="font-bold mb-2">🔍 Debug Info:</h3>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <div>Judge Scores:</div>
+          <div className={judgeScores ? 'text-green-400' : 'text-yellow-400'}>
+            {judgeScores ? '✅ Loaded' : '⏳ Loading...'}
+          </div>
+          
+          <div>Judge Error:</div>
+          <div className="text-red-400">{judgeError?.message || 'None'}</div>
+          
+          <div>Judge Loading:</div>
+          <div>{judgeLoading ? 'Yes' : 'No'}</div>
+        </div>
+        
+        {judgeScores && (
+          <div className="mt-2">
+            <p className="text-sm font-semibold">📦 Data:</p>
+            <pre className="text-xs mt-1 bg-gray-900 p-2 rounded overflow-auto max-h-40">
+              {JSON.stringify(judgeScores, null, 2)}
+            </pre>
+          </div>
+        )}
+        
+        {!judgeScores && !judgeLoading && !judgeError && (
+          <div className="mt-2 text-yellow-400 text-sm">
+            ⏳ Waiting for judge scores to load...
+          </div>
+        )}
+      </div>
+
+      {/* LLM-as-a-Judge Analysis */}
+      {judgeScores && (
+        <JudgeScores
+          scores={{
+            variant_a: judgeScores.scores?.A || { accuracy: 0, clarity: 0, completeness: 0 },
+            variant_b: judgeScores.scores?.B || { accuracy: 0, clarity: 0, completeness: 0 },
+            winner: judgeScores.winner || 'tie',
+            reasoning: judgeScores.reasoning || 'No reasoning provided'
+          }}
+        />
+      )}
 
       {/* Trend Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
